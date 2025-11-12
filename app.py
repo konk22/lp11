@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 import os
@@ -66,26 +66,149 @@ class Comment(db.Model):
         }
 
 
-# Создание таблиц выполняется при запуске приложения в блоке __main__
+# API Эндпоинты для постов
 
-# Базовый маршрут для проверки работы
 @app.route('/')
 def index():
+    """Базовый маршрут для проверки работы API"""
     return {
         'message': 'Blog API работает!',
         'version': '1.0.0',
-        'models': {
-            'Post': {
-                'fields': ['id', 'title', 'content', 'created_at', 'updated_at'],
-                'relationships': ['comments']
-            },
-            'Comment': {
-                'fields': ['id', 'post_id', 'content', 'author', 'created_at'],
-                'relationships': ['post']
-            }
+        'endpoints': {
+            'posts': '/posts',
+            'comments': '/posts/{id}/comments'
         }
     }
 
+
+@app.route('/posts', methods=['GET'])
+def get_posts():
+    """Получить все посты"""
+    try:
+        posts = Post.query.all()
+        return jsonify({
+            'success': True,
+            'data': [post.to_dict() for post in posts],
+            'count': len(posts)
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/posts/<int:post_id>', methods=['GET'])
+def get_post(post_id):
+    """Получить пост по ID"""
+    try:
+        post = Post.query.get_or_404(post_id)
+        return jsonify({
+            'success': True,
+            'data': post.to_dict()
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/posts', methods=['POST'])
+def create_post():
+    """Создать новый пост"""
+    try:
+        data = request.get_json()
+
+        # Проверка обязательных полей
+        if not data or not data.get('title') or not data.get('content'):
+            return jsonify({
+                'success': False,
+                'error': 'Поля title и content обязательны'
+            }), 400
+
+        # Создание нового поста
+        post = Post(
+            title=data['title'],
+            content=data['content']
+        )
+
+        db.session.add(post)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'data': post.to_dict(),
+            'message': 'Пост успешно создан'
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/posts/<int:post_id>', methods=['PUT'])
+def update_post(post_id):
+    """Обновить пост"""
+    try:
+        post = Post.query.get_or_404(post_id)
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Данные для обновления не предоставлены'
+            }), 400
+
+        # Обновление полей
+        if 'title' in data:
+            post.title = data['title']
+        if 'content' in data:
+            post.content = data['content']
+
+        post.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'data': post.to_dict(),
+            'message': 'Пост успешно обновлен'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/posts/<int:post_id>', methods=['DELETE'])
+def delete_post(post_id):
+    """Удалить пост"""
+    try:
+        post = Post.query.get_or_404(post_id)
+
+        db.session.delete(post)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Пост успешно удален'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# Создание таблиц выполняется при запуске приложения в блоке __main__
 
 if __name__ == '__main__':
     with app.app_context():

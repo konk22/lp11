@@ -68,3 +68,127 @@ curl http://localhost:5050/
 ## Следующие шаги
 - Реализация CRUD операций для постов (задача 1-2)
 - Добавление API эндпоинтов для комментариев (задача 2-1)
+
+# Задача 1-2: Модели данных
+
+## Описание
+Создание моделей данных для блога с настройкой связей между сущностями.
+
+## Реализованные модели
+
+### 1. Модель Post
+```python
+class Post(db.Model):
+    __tablename__ = 'posts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Связь с комментариями (один-ко-многим)
+    comments = db.relationship('Comment', backref='post', lazy=True, cascade='all, delete-orphan')
+```
+
+**Поля:**
+- `id` - уникальный идентификатор (автоинкремент)
+- `title` - заголовок поста (максимум 200 символов)
+- `content` - содержимое поста (текст)
+- `created_at` - дата создания (автоматически)
+- `updated_at` - дата обновления (автоматически)
+
+### 2. Модель Comment
+```python
+class Comment(db.Model):
+    __tablename__ = 'comments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    author = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+```
+
+**Поля:**
+- `id` - уникальный идентификатор (автоинкремент)
+- `post_id` - ссылка на пост (внешний ключ)
+- `content` - содержимое комментария
+- `author` - автор комментария (максимум 100 символов)
+- `created_at` - дата создания (автоматически)
+
+## Связи между моделями
+
+### Один-ко-многим (Post → Comment)
+- Один пост может иметь много комментариев
+- Один комментарий принадлежит одному посту
+- При удалении поста все комментарии удаляются автоматически (cascade)
+
+### Настройка связей
+```python
+# В модели Post
+comments = db.relationship('Comment', backref='post', lazy=True, cascade='all, delete-orphan')
+
+# В модели Comment
+post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+```
+
+## Методы моделей
+
+### to_dict()
+Каждая модель имеет метод `to_dict()` для сериализации в JSON:
+```python
+def to_dict(self):
+    return {
+        'id': self.id,
+        'title': self.title,
+        'content': self.content,
+        'created_at': self.created_at.isoformat(),
+        'updated_at': self.updated_at.isoformat()
+    }
+```
+
+## Миграции базы данных
+
+### Автоматическое создание таблиц
+```python
+@app.before_first_request
+def create_tables():
+    db.create_all()
+```
+
+### Flask-Migrate
+Настроен Flask-Migrate для управления миграциями:
+```python
+migrate = Migrate(app, db)
+```
+
+## Установка и запуск
+
+1. Установите зависимости:
+```bash
+pip install -r requirements.txt
+```
+
+2. Запустите приложение:
+```bash
+python run.py
+```
+
+3. Проверьте работу:
+```bash
+curl http://localhost:5050/
+```
+
+## Структура файлов
+```
+1-2/
+├── app.py              # Flask приложение с моделями
+├── run.py              # Точка входа
+├── requirements.txt    # Зависимости Python
+└── README.md          # Документация
+```
+
+## Следующие шаги
+- Реализация CRUD операций для постов (задача 1-3)
+- Добавление обработки ошибок (задача 1-4)

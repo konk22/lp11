@@ -16,22 +16,23 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+
 # Модель Post
 class Post(db.Model):
     __tablename__ = 'posts'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     # Связь с комментариями (один-ко-многим)
     comments = db.relationship('Comment', backref='post', lazy=True, cascade='all, delete-orphan')
-    
+
     def __repr__(self):
         return f'<Post {self.title}>'
-    
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -41,19 +42,20 @@ class Post(db.Model):
             'updated_at': self.updated_at.isoformat()
         }
 
+
 # Модель Comment
 class Comment(db.Model):
     __tablename__ = 'comments'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     author = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     def __repr__(self):
         return f'<Comment {self.id} by {self.author}>'
-    
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -63,6 +65,7 @@ class Comment(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
 # Создание таблиц выполняется при запуске приложения в блоке __main__
 
 # Базовый маршрут для проверки работы
@@ -71,11 +74,18 @@ def index():
     return {
         'message': 'Blog API работает!',
         'version': '1.0.0',
-        'endpoints': {
-            'posts': '/posts',
-            'comments': '/posts/{id}/comments'
+        'models': {
+            'Post': {
+                'fields': ['id', 'title', 'content', 'created_at', 'updated_at'],
+                'relationships': ['comments']
+            },
+            'Comment': {
+                'fields': ['id', 'post_id', 'content', 'author', 'created_at'],
+                'relationships': ['post']
+            }
         }
     }
+
 
 if __name__ == '__main__':
     with app.app_context():

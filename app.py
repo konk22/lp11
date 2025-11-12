@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 import os
 import logging
+import re
 from datetime import datetime
 from functools import wraps
 
@@ -127,50 +128,176 @@ def internal_error(error):
         'message': 'Произошла неожиданная ошибка. Попробуйте позже.'
     }), 500
 
-# Валидация данных
+# Расширенная валидация данных
+class ValidationError(Exception):
+    """Кастомное исключение для ошибок валидации"""
+    def __init__(self, message, field=None):
+        self.message = message
+        self.field = field
+        super().__init__(self.message)
+
+def sanitize_text(text):
+    """Очистка текста от потенциально опасных символов"""
+    if not text:
+        return text
+    
+    # Удаление HTML тегов
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Удаление лишних пробелов и переносов строк
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
+def validate_title(title):
+    """Валидация заголовка поста"""
+    errors = []
+    
+    if not title:
+        errors.append("Заголовок обязателен")
+        return errors
+    
+    title = title.strip()
+    
+    if len(title) < 3:
+        errors.append("Заголовок должен содержать минимум 3 символа")
+    elif len(title) > 200:
+        errors.append("Заголовок не должен превышать 200 символов")
+    
+    # Проверка на спам (повторяющиеся символы)
+    if re.search(r'(.)\1{4,}', title):
+        errors.append("Заголовок содержит подозрительные повторения символов")
+    
+    return errors
+
+def validate_content(content):
+    """Валидация содержимого поста"""
+    errors = []
+    
+    if not content:
+        errors.append("Содержимое обязательно")
+        return errors
+    
+    content = content.strip()
+    
+    if len(content) < 10:
+        errors.append("Содержимое должно содержать минимум 10 символов")
+    elif len(content) > 10000:
+        errors.append("Содержимое не должно превышать 10000 символов")
+    
+    # Проверка на недопустимые символы
+    if re.search(r'<script|javascript:|on\w+\s*=', content, re.IGNORECASE):
+        errors.append("Содержимое содержит потенциально опасный код")
+    
+    # Проверка на спам (повторяющиеся слова)
+    words = content.lower().split()
+    if len(words) > 10:
+        word_count = {}
+        for word in words:
+            if len(word) > 3:  # Игнорируем короткие слова
+                word_count[word] = word_count.get(word, 0) + 1
+        
+        max_repetitions = max(word_count.values()) if word_count else 0
+        if max_repetitions > len(words) * 0.3:  # Если одно слово повторяется более 30% раз
+            errors.append("Содержимое содержит подозрительные повторения слов")
+    
+    return errors
+
+def validate_author(author):
+    """Валидация имени автора"""
+    errors = []
+    
+    if not author:
+        errors.append("Имя автора обязательно")
+        return errors
+    
+    author = author.strip()
+    
+    if len(author) < 2:
+        errors.append("Имя автора должно содержать минимум 2 символа")
+    elif len(author) > 100:
+        errors.append("Имя автора не должно превышать 100 символов")
+    
+    # Проверка на допустимые символы (только буквы, цифры, пробелы, дефисы)
+    if not re.match(r'^[a-zA-Zа-яА-Я0-9\s\-\.]+$', author):
+        errors.append("Имя автора содержит недопустимые символы")
+    
+    # Проверка на спам (повторяющиеся символы)
+    if re.search(r'(.)\1{3,}', author):
+        errors.append("Имя автора содержит подозрительные повторения символов")
+    
+    return errors
+
+def validate_comment_content(content):
+    """Валидация содержимого комментария"""
+    errors = []
+    
+    if not content:
+        errors.append("Содержимое комментария обязательно")
+        return errors
+    
+    content = content.strip()
+    
+    if len(content) < 5:
+        errors.append("Содержимое комментария должно содержать минимум 5 символов")
+    elif len(content) > 1000:
+        errors.append("Содержимое комментария не должно превышать 1000 символов")
+    
+    # Проверка на недопустимые символы
+    if re.search(r'<script|javascript:|on\w+\s*=', content, re.IGNORECASE):
+        errors.append("Содержимое комментария содержит потенциально опасный код")
+    
+    # Проверка на спам (повторяющиеся символы)
+    if re.search(r'(.)\1{5,}', content):
+        errors.append("Содержимое комментария содержит подозрительные повторения символов")
+    
+    return errors
+
 def validate_post_data(data):
-    """Валидация данных для поста"""
+    """Комплексная валидация данных для поста"""
     errors = []
     
     if not data:
         errors.append("Данные не предоставлены")
         return errors
     
-    if not data.get('title'):
+    # Валидация заголовка
+    if 'title' in data:
+        title_errors = validate_title(data['title'])
+        errors.extend(title_errors)
+    else:
         errors.append("Поле 'title' обязательно")
-    elif len(data['title'].strip()) < 3:
-        errors.append("Заголовок должен содержать минимум 3 символа")
-    elif len(data['title']) > 200:
-        errors.append("Заголовок не должен превышать 200 символов")
     
-    if not data.get('content'):
+    # Валидация содержимого
+    if 'content' in data:
+        content_errors = validate_content(data['content'])
+        errors.extend(content_errors)
+    else:
         errors.append("Поле 'content' обязательно")
-    elif len(data['content'].strip()) < 10:
-        errors.append("Содержимое должно содержать минимум 10 символов")
     
     return errors
 
 def validate_comment_data(data):
-    """Валидация данных для комментария"""
+    """Комплексная валидация данных для комментария"""
     errors = []
     
     if not data:
         errors.append("Данные не предоставлены")
         return errors
     
-    if not data.get('content'):
+    # Валидация содержимого
+    if 'content' in data:
+        content_errors = validate_comment_content(data['content'])
+        errors.extend(content_errors)
+    else:
         errors.append("Поле 'content' обязательно")
-    elif len(data['content'].strip()) < 5:
-        errors.append("Содержимое комментария должно содержать минимум 5 символов")
-    elif len(data['content']) > 1000:
-        errors.append("Содержимое комментария не должно превышать 1000 символов")
     
-    if not data.get('author'):
+    # Валидация автора
+    if 'author' in data:
+        author_errors = validate_author(data['author'])
+        errors.extend(author_errors)
+    else:
         errors.append("Поле 'author' обязательно")
-    elif len(data['author'].strip()) < 2:
-        errors.append("Имя автора должно содержать минимум 2 символа")
-    elif len(data['author']) > 100:
-        errors.append("Имя автора не должно превышать 100 символов")
     
     return errors
 
@@ -181,8 +308,14 @@ def validate_comment_data(data):
 def index():
     """Базовый маршрут для проверки работы API"""
     return {
-        'message': 'Blog API работает!',
+        'message': 'Blog API с расширенной валидацией работает!',
         'version': '1.0.0',
+        'features': [
+            'Валидация HTML тегов',
+            'Проверка на спам',
+            'Очистка текста',
+            'Проверка безопасности'
+        ],
         'endpoints': {
             'posts': '/posts',
             'comments': '/posts/{id}/comments'
@@ -220,7 +353,7 @@ def get_post(post_id):
             return jsonify({
                 'success': False,
                 'error': 'Пост не найден',
-                'message': f'Пост с ID {post_id} не существует'
+                'message': f'Пост не найден: ID {post_id}'
             }), 404
         
         logger.info(f"Получен пост с ID {post_id}")
@@ -241,7 +374,13 @@ def get_post(post_id):
 def create_post():
     """Создать новый пост"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({
+                'success': False,
+                'error': 'Неверный JSON',
+                'message': 'Тело запроса должно содержать корректный JSON'
+            }), 400
         
         # Валидация данных
         validation_errors = validate_post_data(data)
@@ -250,13 +389,18 @@ def create_post():
             return jsonify({
                 'success': False,
                 'error': 'Ошибки валидации',
-                'message': '; '.join(validation_errors)
+                'message': '; '.join(validation_errors),
+                'validation_errors': validation_errors
             }), 400
+        
+        # Очистка данных
+        title = sanitize_text(data['title'])
+        content = sanitize_text(data['content'])
         
         # Создание нового поста
         post = Post(
-            title=data['title'].strip(),
-            content=data['content'].strip()
+            title=title,
+            content=content
         )
         
         db.session.add(post)
@@ -292,7 +436,7 @@ def update_post(post_id):
                 'message': f'Пост с ID {post_id} не существует'
             }), 404
         
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({
                 'success': False,
@@ -312,14 +456,15 @@ def update_post(post_id):
                 return jsonify({
                     'success': False,
                     'error': 'Ошибки валидации',
-                    'message': '; '.join(validation_errors)
+                    'message': '; '.join(validation_errors),
+                    'validation_errors': validation_errors
                 }), 400
         
-        # Обновление полей
+        # Обновление полей с очисткой
         if 'title' in data:
-            post.title = data['title'].strip()
+            post.title = sanitize_text(data['title'])
         if 'content' in data:
-            post.content = data['content'].strip()
+            post.content = sanitize_text(data['content'])
         
         post.updated_at = datetime.utcnow()
         db.session.commit()
@@ -387,7 +532,7 @@ def get_comments(post_id):
             return jsonify({
                 'success': False,
                 'error': 'Пост не найден',
-                'message': f'Пост с ID {post_id} не существует'
+                'message': f'Пост не найден: ID {post_id}'
             }), 404
         
         comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.desc()).all()
@@ -420,10 +565,16 @@ def create_comment(post_id):
             return jsonify({
                 'success': False,
                 'error': 'Пост не найден',
-                'message': f'Пост с ID {post_id} не существует'
+                'message': f'Пост не найден: ID {post_id}'
             }), 404
         
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({
+                'success': False,
+                'error': 'Неверный JSON',
+                'message': 'Тело запроса должно содержать корректный JSON'
+            }), 400
         
         # Валидация данных
         validation_errors = validate_comment_data(data)
@@ -432,14 +583,19 @@ def create_comment(post_id):
             return jsonify({
                 'success': False,
                 'error': 'Ошибки валидации',
-                'message': '; '.join(validation_errors)
+                'message': '; '.join(validation_errors),
+                'validation_errors': validation_errors
             }), 400
+        
+        # Очистка данных
+        content = sanitize_text(data['content'])
+        author = sanitize_text(data['author'])
         
         # Создание нового комментария
         comment = Comment(
             post_id=post_id,
-            content=data['content'].strip(),
-            author=data['author'].strip()
+            content=content,
+            author=author
         )
         
         db.session.add(comment)
@@ -472,7 +628,7 @@ def get_comment(comment_id):
             return jsonify({
                 'success': False,
                 'error': 'Комментарий не найден',
-                'message': f'Комментарий с ID {comment_id} не существует'
+                'message': f'Комментарий не найден: ID {comment_id}'
             }), 404
         
         logger.info(f"Получен комментарий с ID {comment_id}")
@@ -503,7 +659,7 @@ def update_comment(comment_id):
                 'message': f'Комментарий с ID {comment_id} не существует'
             }), 404
         
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({
                 'success': False,
@@ -523,14 +679,15 @@ def update_comment(comment_id):
                 return jsonify({
                     'success': False,
                     'error': 'Ошибки валидации',
-                    'message': '; '.join(validation_errors)
+                    'message': '; '.join(validation_errors),
+                    'validation_errors': validation_errors
                 }), 400
         
-        # Обновление полей
+        # Обновление полей с очисткой
         if 'content' in data:
-            comment.content = data['content'].strip()
+            comment.content = sanitize_text(data['content'])
         if 'author' in data:
-            comment.author = data['author'].strip()
+            comment.author = sanitize_text(data['author'])
         
         db.session.commit()
         
@@ -561,7 +718,7 @@ def delete_comment(comment_id):
             return jsonify({
                 'success': False,
                 'error': 'Комментарий не найден',
-                'message': f'Комментарий с ID {comment_id} не существует'
+                'message': f'Комментарий не найден: ID {comment_id}'
             }), 404
         
         comment_author = comment.author
@@ -589,5 +746,5 @@ def delete_comment(comment_id):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    logger.info("Запуск Flask приложения")
+    logger.info("Запуск Flask приложения с расширенной валидацией")
     app.run(debug=True, host='0.0.0.0', port=5050)

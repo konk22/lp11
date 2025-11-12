@@ -127,6 +127,53 @@ def internal_error(error):
         'message': 'Произошла неожиданная ошибка. Попробуйте позже.'
     }), 500
 
+# Валидация данных
+def validate_post_data(data):
+    """Валидация данных для поста"""
+    errors = []
+    
+    if not data:
+        errors.append("Данные не предоставлены")
+        return errors
+    
+    if not data.get('title'):
+        errors.append("Поле 'title' обязательно")
+    elif len(data['title'].strip()) < 3:
+        errors.append("Заголовок должен содержать минимум 3 символа")
+    elif len(data['title']) > 200:
+        errors.append("Заголовок не должен превышать 200 символов")
+    
+    if not data.get('content'):
+        errors.append("Поле 'content' обязательно")
+    elif len(data['content'].strip()) < 10:
+        errors.append("Содержимое должно содержать минимум 10 символов")
+    
+    return errors
+
+def validate_comment_data(data):
+    """Валидация данных для комментария"""
+    errors = []
+    
+    if not data:
+        errors.append("Данные не предоставлены")
+        return errors
+    
+    if not data.get('content'):
+        errors.append("Поле 'content' обязательно")
+    elif len(data['content'].strip()) < 5:
+        errors.append("Содержимое комментария должно содержать минимум 5 символов")
+    elif len(data['content']) > 1000:
+        errors.append("Содержимое комментария не должно превышать 1000 символов")
+    
+    if not data.get('author'):
+        errors.append("Поле 'author' обязательно")
+    elif len(data['author'].strip()) < 2:
+        errors.append("Имя автора должно содержать минимум 2 символа")
+    elif len(data['author']) > 100:
+        errors.append("Имя автора не должно превышать 100 символов")
+    
+    return errors
+
 # API Эндпоинты для постов
 
 @app.route('/')
@@ -134,13 +181,8 @@ def internal_error(error):
 def index():
     """Базовый маршрут для проверки работы API"""
     return {
-        'message': 'Blog API с обработкой ошибок работает!',
+        'message': 'Blog API работает!',
         'version': '1.0.0',
-        'features': [
-            'Логирование запросов',
-            'Обработка ошибок',
-            'HTTP статус-коды'
-        ],
         'endpoints': {
             'posts': '/posts',
             'comments': '/posts/{id}/comments'
@@ -201,19 +243,20 @@ def create_post():
     try:
         data = request.get_json()
         
-        # Проверка обязательных полей
-        if not data or not data.get('title') or not data.get('content'):
-            logger.warning("Попытка создать пост без обязательных полей")
+        # Валидация данных
+        validation_errors = validate_post_data(data)
+        if validation_errors:
+            logger.warning(f"Ошибки валидации при создании поста: {validation_errors}")
             return jsonify({
                 'success': False,
-                'error': 'Поля title и content обязательны',
-                'message': 'Необходимо предоставить заголовок и содержимое поста'
+                'error': 'Ошибки валидации',
+                'message': '; '.join(validation_errors)
             }), 400
         
         # Создание нового поста
         post = Post(
-            title=data['title'],
-            content=data['content']
+            title=data['title'].strip(),
+            content=data['content'].strip()
         )
         
         db.session.add(post)
@@ -257,11 +300,26 @@ def update_post(post_id):
                 'message': 'Необходимо предоставить данные для обновления'
             }), 400
         
+        # Валидация данных (если они предоставлены)
+        if 'title' in data or 'content' in data:
+            validation_data = {
+                'title': data.get('title', post.title),
+                'content': data.get('content', post.content)
+            }
+            validation_errors = validate_post_data(validation_data)
+            if validation_errors:
+                logger.warning(f"Ошибки валидации при обновлении поста {post_id}: {validation_errors}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Ошибки валидации',
+                    'message': '; '.join(validation_errors)
+                }), 400
+        
         # Обновление полей
         if 'title' in data:
-            post.title = data['title']
+            post.title = data['title'].strip()
         if 'content' in data:
-            post.content = data['content']
+            post.content = data['content'].strip()
         
         post.updated_at = datetime.utcnow()
         db.session.commit()
@@ -315,10 +373,221 @@ def delete_post(post_id):
             'message': 'Не удалось удалить пост'
         }), 500
 
+# API Эндпоинты для комментариев
+
+@app.route('/posts/<int:post_id>/comments', methods=['GET'])
+@log_request
+def get_comments(post_id):
+    """Получить все комментарии к посту"""
+    try:
+        # Проверяем существование поста
+        post = Post.query.get(post_id)
+        if not post:
+            logger.warning(f"Попытка получить комментарии к несуществующему посту {post_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Пост не найден',
+                'message': f'Пост с ID {post_id} не существует'
+            }), 404
+        
+        comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.desc()).all()
+        logger.info(f"Получено {len(comments)} комментариев для поста {post_id}")
+        
+        return jsonify({
+            'success': True,
+            'data': [comment.to_dict() for comment in comments],
+            'count': len(comments),
+            'post_id': post_id
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении комментариев для поста {post_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Ошибка при получении комментариев',
+            'message': 'Не удалось получить комментарии'
+        }), 500
+
+@app.route('/posts/<int:post_id>/comments', methods=['POST'])
+@log_request
+def create_comment(post_id):
+    """Создать новый комментарий к посту"""
+    try:
+        # Проверяем существование поста
+        post = Post.query.get(post_id)
+        if not post:
+            logger.warning(f"Попытка создать комментарий к несуществующему посту {post_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Пост не найден',
+                'message': f'Пост с ID {post_id} не существует'
+            }), 404
+        
+        data = request.get_json()
+        
+        # Валидация данных
+        validation_errors = validate_comment_data(data)
+        if validation_errors:
+            logger.warning(f"Ошибки валидации при создании комментария: {validation_errors}")
+            return jsonify({
+                'success': False,
+                'error': 'Ошибки валидации',
+                'message': '; '.join(validation_errors)
+            }), 400
+        
+        # Создание нового комментария
+        comment = Comment(
+            post_id=post_id,
+            content=data['content'].strip(),
+            author=data['author'].strip()
+        )
+        
+        db.session.add(comment)
+        db.session.commit()
+        
+        logger.info(f"Создан новый комментарий с ID {comment.id} к посту {post_id} от {comment.author}")
+        return jsonify({
+            'success': True,
+            'data': comment.to_dict(),
+            'message': 'Комментарий успешно создан'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Ошибка при создании комментария к посту {post_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Ошибка при создании комментария',
+            'message': 'Не удалось создать комментарий'
+        }), 500
+
+@app.route('/comments/<int:comment_id>', methods=['GET'])
+@log_request
+def get_comment(comment_id):
+    """Получить комментарий по ID"""
+    try:
+        comment = Comment.query.get(comment_id)
+        if not comment:
+            logger.warning(f"Комментарий с ID {comment_id} не найден")
+            return jsonify({
+                'success': False,
+                'error': 'Комментарий не найден',
+                'message': f'Комментарий с ID {comment_id} не существует'
+            }), 404
+        
+        logger.info(f"Получен комментарий с ID {comment_id}")
+        return jsonify({
+            'success': True,
+            'data': comment.to_dict()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении комментария {comment_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Ошибка при получении комментария',
+            'message': 'Не удалось получить комментарий'
+        }), 500
+
+@app.route('/comments/<int:comment_id>', methods=['PUT'])
+@log_request
+def update_comment(comment_id):
+    """Обновить комментарий"""
+    try:
+        comment = Comment.query.get(comment_id)
+        if not comment:
+            logger.warning(f"Попытка обновить несуществующий комментарий с ID {comment_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Комментарий не найден',
+                'message': f'Комментарий с ID {comment_id} не существует'
+            }), 404
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Данные не предоставлены',
+                'message': 'Необходимо предоставить данные для обновления'
+            }), 400
+        
+        # Валидация данных (если они предоставлены)
+        if 'content' in data or 'author' in data:
+            validation_data = {
+                'content': data.get('content', comment.content),
+                'author': data.get('author', comment.author)
+            }
+            validation_errors = validate_comment_data(validation_data)
+            if validation_errors:
+                logger.warning(f"Ошибки валидации при обновлении комментария {comment_id}: {validation_errors}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Ошибки валидации',
+                    'message': '; '.join(validation_errors)
+                }), 400
+        
+        # Обновление полей
+        if 'content' in data:
+            comment.content = data['content'].strip()
+        if 'author' in data:
+            comment.author = data['author'].strip()
+        
+        db.session.commit()
+        
+        logger.info(f"Обновлен комментарий с ID {comment_id} от {comment.author}")
+        return jsonify({
+            'success': True,
+            'data': comment.to_dict(),
+            'message': 'Комментарий успешно обновлен'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Ошибка при обновлении комментария {comment_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Ошибка при обновлении комментария',
+            'message': 'Не удалось обновить комментарий'
+        }), 500
+
+@app.route('/comments/<int:comment_id>', methods=['DELETE'])
+@log_request
+def delete_comment(comment_id):
+    """Удалить комментарий"""
+    try:
+        comment = Comment.query.get(comment_id)
+        if not comment:
+            logger.warning(f"Попытка удалить несуществующий комментарий с ID {comment_id}")
+            return jsonify({
+                'success': False,
+                'error': 'Комментарий не найден',
+                'message': f'Комментарий с ID {comment_id} не существует'
+            }), 404
+        
+        comment_author = comment.author
+        post_id = comment.post_id
+        db.session.delete(comment)
+        db.session.commit()
+        
+        logger.info(f"Удален комментарий с ID {comment_id} от {comment_author} к посту {post_id}")
+        return jsonify({
+            'success': True,
+            'message': 'Комментарий успешно удален'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Ошибка при удалении комментария {comment_id}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Ошибка при удалении комментария',
+            'message': 'Не удалось удалить комментарий'
+        }), 500
+
 # Создание таблиц выполняется при запуске приложения в блоке __main__
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    logger.info("Запуск Flask приложения с обработкой ошибок")
+    logger.info("Запуск Flask приложения")
     app.run(debug=True, host='0.0.0.0', port=5050)

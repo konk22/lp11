@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт для тестирования обработки ошибок в API
+Простой скрипт для тестирования API эндпоинтов постов
 """
 
 import requests
@@ -8,119 +8,100 @@ import json
 
 BASE_URL = "http://localhost:5050"
 
-
-def test_error_handling():
-    """Тестирование различных сценариев ошибок"""
-
-    print("🧪 Тестирование обработки ошибок")
+def test_api():
+    """Тестирование всех CRUD операций для постов"""
+    
+    print("🧪 Тестирование API эндпоинтов для постов")
     print("=" * 50)
-
-    # 1. Тест несуществующего эндпоинта
-    print("\n1. Тест несуществующего эндпоинта...")
+    
+    # 1. Проверка базового эндпоинта
+    print("\n1. Проверка базового эндпоинта...")
     try:
-        response = requests.get(f"{BASE_URL}/nonexistent")
+        response = requests.get(f"{BASE_URL}/")
         print(f"   Статус: {response.status_code}")
         print(f"   Ответ: {response.json()}")
     except Exception as e:
         print(f"   Ошибка: {e}")
-
-    # 2. Тест получения несуществующего поста
-    print("\n2. Тест получения несуществующего поста...")
+    
+    # 2. Получение всех постов (должно быть пусто)
+    print("\n2. Получение всех постов...")
     try:
-        response = requests.get(f"{BASE_URL}/posts/999")
+        response = requests.get(f"{BASE_URL}/posts")
         print(f"   Статус: {response.status_code}")
         print(f"   Ответ: {response.json()}")
     except Exception as e:
         print(f"   Ошибка: {e}")
-
-    # 3. Тест создания поста без данных
-    print("\n3. Тест создания поста без данных...")
-    try:
-        response = requests.post(f"{BASE_URL}/posts")
-        print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
-    except Exception as e:
-        print(f"   Ошибка: {e}")
-
-    # 4. Тест создания поста с пустыми полями
-    print("\n4. Тест создания поста с пустыми полями...")
-    try:
-        response = requests.post(f"{BASE_URL}/posts", json={})
-        print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
-    except Exception as e:
-        print(f"   Ошибка: {e}")
-
-    # 5. Тест создания поста с невалидными данными
-    print("\n5. Тест создания поста с невалидными данными...")
-    invalid_post = {
-        "title": "ab",  # Слишком короткий заголовок
-        "content": "123"  # Слишком короткое содержимое
+    
+    # 3. Создание нового поста
+    print("\n3. Создание нового поста...")
+    new_post = {
+        "title": "Мой первый пост",
+        "content": "Это содержимое моего первого поста в блоге."
     }
     try:
-        response = requests.post(f"{BASE_URL}/posts", json=invalid_post)
+        response = requests.post(f"{BASE_URL}/posts", json=new_post)
         print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
+        result = response.json()
+        print(f"   Ответ: {result}")
+        post_id = result.get('data', {}).get('id') if result.get('success') else None
     except Exception as e:
         print(f"   Ошибка: {e}")
-
-    # 6. Тест создания поста с слишком длинным заголовком
-    print("\n6. Тест создания поста с слишком длинным заголовком...")
-    long_title_post = {
-        "title": "a" * 201,  # Слишком длинный заголовок
-        "content": "Это валидное содержимое поста с достаточным количеством символов."
-    }
+        post_id = None
+    
+    # 4. Получение созданного поста
+    if post_id:
+        print(f"\n4. Получение поста с ID {post_id}...")
+        try:
+            response = requests.get(f"{BASE_URL}/posts/{post_id}")
+            print(f"   Статус: {response.status_code}")
+            print(f"   Ответ: {response.json()}")
+        except Exception as e:
+            print(f"   Ошибка: {e}")
+    
+    # 5. Обновление поста
+    if post_id:
+        print(f"\n5. Обновление поста с ID {post_id}...")
+        updated_post = {
+            "title": "Обновленный заголовок",
+            "content": "Обновленное содержимое поста."
+        }
+        try:
+            response = requests.put(f"{BASE_URL}/posts/{post_id}", json=updated_post)
+            print(f"   Статус: {response.status_code}")
+            print(f"   Ответ: {response.json()}")
+        except Exception as e:
+            print(f"   Ошибка: {e}")
+    
+    # 6. Получение всех постов (должен быть один пост)
+    print("\n6. Получение всех постов после создания...")
     try:
-        response = requests.post(f"{BASE_URL}/posts", json=long_title_post)
+        response = requests.get(f"{BASE_URL}/posts")
         print(f"   Статус: {response.status_code}")
         print(f"   Ответ: {response.json()}")
     except Exception as e:
         print(f"   Ошибка: {e}")
-
-    # 7. Тест обновления несуществующего поста
-    print("\n7. Тест обновления несуществующего поста...")
+    
+    # 7. Удаление поста
+    if post_id:
+        print(f"\n7. Удаление поста с ID {post_id}...")
+        try:
+            response = requests.delete(f"{BASE_URL}/posts/{post_id}")
+            print(f"   Статус: {response.status_code}")
+            print(f"   Ответ: {response.json()}")
+        except Exception as e:
+            print(f"   Ошибка: {e}")
+    
+    # 8. Проверка удаления
+    print("\n8. Проверка удаления поста...")
     try:
-        response = requests.put(f"{BASE_URL}/posts/999", json={"title": "Новый заголовок"})
+        response = requests.get(f"{BASE_URL}/posts")
         print(f"   Статус: {response.status_code}")
         print(f"   Ответ: {response.json()}")
     except Exception as e:
         print(f"   Ошибка: {e}")
-
-    # 8. Тест удаления несуществующего поста
-    print("\n8. Тест удаления несуществующего поста...")
-    try:
-        response = requests.delete(f"{BASE_URL}/posts/999")
-        print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
-    except Exception as e:
-        print(f"   Ошибка: {e}")
-
-    # 9. Тест неверного HTTP метода
-    print("\n9. Тест неверного HTTP метода...")
-    try:
-        response = requests.patch(f"{BASE_URL}/posts")  # PATCH не поддерживается
-        print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
-    except Exception as e:
-        print(f"   Ошибка: {e}")
-
-    # 10. Тест успешного создания поста для проверки валидации
-    print("\n10. Тест успешного создания поста...")
-    valid_post = {
-        "title": "Валидный заголовок",
-        "content": "Это валидное содержимое поста с достаточным количеством символов для прохождения валидации."
-    }
-    try:
-        response = requests.post(f"{BASE_URL}/posts", json=valid_post)
-        print(f"   Статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
-    except Exception as e:
-        print(f"   Ошибка: {e}")
-
+    
     print("\n" + "=" * 50)
-    print("✅ Тестирование обработки ошибок завершено!")
-    print("📝 Проверьте файл blog_api.log для просмотра логов")
-
+    print("✅ Тестирование завершено!")
 
 if __name__ == "__main__":
-    test_error_handling()
+    test_api()
